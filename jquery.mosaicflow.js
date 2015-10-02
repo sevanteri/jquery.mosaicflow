@@ -44,8 +44,8 @@
 		itemSelector: '> *',
 		columnClass: 'mosaicflow__column',
 		minItemWidth: 240,
-		itemHeightCalculation: 'auto',
-		threshold: 40
+		threshold: 40,
+		levelBottom: true
 	};
 
 	function Mosaicflow(container, options) {
@@ -63,8 +63,6 @@
 			this.__uidItemCounter = 0;
 			this.items = this.container.find(this.options.itemSelector);
 			this.columns = $([]);
-			this.columnsHeights = [];
-			this.itemsHeights = {};
 			this.tempContainer = $('<div>').css({'visibility': 'hidden', 'width': '100%'});
 			this.workOnTemp = false;
 			this.autoCalculation = this.options.itemHeightCalculation === 'auto';
@@ -135,7 +133,6 @@
 				}
 
 				var diff = createdCnt - calculatedCnt;
-				this.columnsHeights.splice(this.columnsHeights.length - diff, diff);
 			}
 
 			if (calculatedCnt !== createdCnt) {
@@ -153,27 +150,13 @@
 
 			for (var columnIdx = 0; columnIdx < columnsCnt; columnIdx++) {
 				var column = this.columns.eq(columnIdx);
-				this.columnsHeights[columnIdx] = 0;
 				for (var itemIdx = columnIdx; itemIdx < itemsCnt; itemIdx += columnsCnt) {
 					var item = this.items.eq(itemIdx);
-					var height = 0;
 					column.append(item);
-
-					if (this.autoCalculation) {
-						// Check height after being placed in its column
-						height = item.outerHeight();
-					}
-					else {
-						// Read img height attribute
-						height = parseInt(item.find('img').attr('height'), 10);
-					}
-
-					this.itemsHeights[item.attr('id')] = height;
-					this.columnsHeights[columnIdx] += height;
 				}
 			}
 
-			this.levelBottomEdge(this.itemsHeights, this.columnsHeights);
+			this.levelBottomEdge();
 
 			if (this.workingContainer === this.tempContainer) {
 				this.container.append(this.tempContainer.children());
@@ -181,16 +164,26 @@
 			this.container.trigger('mosaicflow-layout');
 		},
 
-		levelBottomEdge: function(itemsHeights, columnsHeights) {
+		columnsHeights: function() {
+			var heights = this.container.find('.' + this.options.columnClass).map(
+				function(i, e) { return $(e).height(); }
+			);
+
+			return heights;
+		},
+
+		levelBottomEdge: function() {
+			if (!this.levelBottom) return;
 			while (true) {
-				var lowestColumn = $.inArray(Math.min.apply(null, columnsHeights), columnsHeights);
-				var highestColumn = $.inArray(Math.max.apply(null, columnsHeights), columnsHeights);
+				var colHeights = this.columnsHeights();
+				var lowestColumn = $.inArray(Math.min.apply(null, colHeights), colHeights);
+				var highestColumn = $.inArray(Math.max.apply(null, colHeights), colHeights);
 				if (lowestColumn === highestColumn) return;
 
 				var lastInHighestColumn = this.columns.eq(highestColumn).children().last();
-				var lastInHighestColumnHeight = itemsHeights[lastInHighestColumn.attr('id')];
-				var lowestHeight = columnsHeights[lowestColumn];
-				var highestHeight = columnsHeights[highestColumn];
+				var lastInHighestColumnHeight = lastInHighestColumn.height();
+				var lowestHeight = colHeights[lowestColumn];
+				var highestHeight = colHeights[highestColumn];
 				var newLowestHeight = lowestHeight + lastInHighestColumnHeight;
 
 				if (newLowestHeight >= highestHeight) return;
@@ -198,48 +191,13 @@
 				if (highestHeight - newLowestHeight < this.options.threshold) return;
 
 				this.columns.eq(lowestColumn).append(lastInHighestColumn);
-				columnsHeights[highestColumn] -= lastInHighestColumnHeight;
-				columnsHeights[lowestColumn] += lastInHighestColumnHeight;
 			}
 		},
 
 		add: function(elm) {
 			this.container.trigger('add');
-			var lowestColumn = $.inArray(Math.min.apply(null, this.columnsHeights), this.columnsHeights);
-			var height = 0;
-
-			if (this.autoCalculation) {
-
-				// Get height of elm
-				elm.css({
-					position: 'static',
-					visibility: 'hidden',
-					display: 'block'
-				}).appendTo(this.columns.eq(lowestColumn));
-
-				height = elm.outerHeight();
-
-				var inlineImages = elm.find('img');
-				if (inlineImages.length !== 0) {
-
-					inlineImages.each(function() {
-						var image = $(this);
-						var imageSizes = getImageSizes(image);
-						var actualHeight = (image.width()*imageSizes.height)/imageSizes.width;
-
-						height += actualHeight;
-					});
-
-				}
-
-				elm.detach().css({
-					position: 'static',
-					visibility: 'visible'
-				});
-			}
-			else {
-				height = parseInt(elm.find('img').attr('height'), 10);
-			}
+			var colHeights = this.columnsHeights();
+			var lowestColumn = $.inArray(Math.min.apply(null, colHeights), colHeights);
 
 			if (!elm.attr('id')) {
 				// Generate a unique id
@@ -252,11 +210,9 @@
 			itemsArr.push(elm);
 			this.items = $(itemsArr);
 
-			this.itemsHeights[elm.attr('id')] = height;
-			this.columnsHeights[lowestColumn] += height;
 			this.columns.eq(lowestColumn).append(elm);
 
-			this.levelBottomEdge(this.itemsHeights, this.columnsHeights);
+			this.levelBottomEdge();
 			this.container.trigger('mosaicflow-layout');
 			this.container.trigger('added');
 		},
@@ -265,14 +221,11 @@
 			this.container.trigger('remove');
 			var column = elm.parents('.' + this.options.columnClass);
 
-			// Update column height
-			this.columnsHeights[column.index() - 1]-= this.itemsHeights[elm.attr('id')];
-
 			elm.detach();
 
 			// Update item collection
 			this.items = this.items.not(elm);
-			this.levelBottomEdge(this.itemsHeights, this.columnsHeights);
+			this.levelBottomEdge();
 			this.container.trigger('mosaicflow-layout');
 			this.container.trigger('removed');
 		},
@@ -281,42 +234,12 @@
 			var columnsCnt = this.numberOfColumns;
 
 			this.items = $([]);
-			this.itemsHeights = {};
 
 			for (var columnIdx = 0; columnIdx < columnsCnt; columnIdx++) {
 				var column = this.columns.eq(columnIdx);
-				this.columnsHeights[columnIdx] = 0;
 				column.empty();
 			}
 			this.container.trigger('mosaicflow-layout');
-		},
-
-		recomputeHeights: function() {
-			function computeHeight(idx, item) {
-				item = $(item);
-				var height = 0;
-				if (that.autoCalculation) {
-					// Check height after being placed in its column
-					height = item.outerHeight();
-				}
-				else {
-					// Read img height attribute
-					height = parseInt(item.find('img').attr('height'), 10);
-				}
-
-				that.itemsHeights[item.attr('id')] = height;
-				that.columnsHeights[columnIdx] += height;
-			}
-
-			var that = this;
-			var columnsCnt = this.numberOfColumns;
-
-			for (var columnIdx = 0; columnIdx < columnsCnt; columnIdx++) {
-				var column = this.columns.eq(columnIdx);
-
-				this.columnsHeights[columnIdx] = 0;
-				column.children().each(computeHeight);
-			}
 		},
 
 		generateUniqueId: function() {
@@ -362,3 +285,4 @@
 	$(function() { $('.mosaicflow').mosaicflow(); });
 
 }));
+// vim: set noet:
