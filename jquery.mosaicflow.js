@@ -264,23 +264,6 @@
 		return options;
 	}
 
-	function getImageSizes(image) {
-		var sizes = {};
-
-		sizes.height = parseInt(image.attr('height'), 10);
-		sizes.width = parseInt(image.attr('width'), 10);
-
-		if (sizes.height === 0 || sizes.width === 0) {
-			var utilImage = new Image();
-			utilImage.src = image.attr('src');
-
-			sizes.width = utilImage.width;
-			sizes.height = utilImage.height;
-		}
-
-		return sizes;
-	}
-
 	// Auto init
 	$(function() { $('.mosaicflow').mosaicflow(); });
 
